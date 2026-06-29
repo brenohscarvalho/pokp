@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Pokp Downloader</string>
+    <string name="download_channel_name">Downloads</string>
+    <string name="download_channel_desc">Progresso dos downloads de mídia</string>
+</resources>

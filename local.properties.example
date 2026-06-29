@@ -1,0 +1,11 @@
+# Copie este arquivo para `local.properties` e preencha com suas credenciais do Spotify.
+# `local.properties` é ignorado pelo git (não comite credenciais reais).
+#
+# Crie um app em https://developer.spotify.com/dashboard para obter Client ID e Secret.
+# Só é necessário para baixar links do Spotify; links do YouTube funcionam sem isso.
+
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
+
+# (Opcional) Caminho do SDK do Android, normalmente preenchido pelo Android Studio:
+# sdk.dir=/caminho/para/Android/Sdk
