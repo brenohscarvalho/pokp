@@ -3,6 +3,7 @@ package com.pokp.pokedex.data.seed
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 
 /** Loads the bundled Pokédex dataset from `assets/pokedex.json`, if present. */

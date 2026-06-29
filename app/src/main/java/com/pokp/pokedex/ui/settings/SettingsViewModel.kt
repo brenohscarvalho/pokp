@@ -51,7 +51,7 @@ class SettingsViewModel(
                 .onSuccess {
                     prefs.setLastUpdated(System.currentTimeMillis())
                     _state.update {
-                        it.copy(syncing = false, progress = null, message = "Update complete")
+                        it.copy(syncing = false, progress = null, message = "Atualização concluída")
                     }
                 }
                 .onFailure { e ->
@@ -59,7 +59,7 @@ class SettingsViewModel(
                         it.copy(
                             syncing = false,
                             progress = null,
-                            message = "Update failed: ${e.message ?: "network error"}",
+                            message = "Falha na atualização: ${e.message ?: "erro de rede"}",
                         )
                     }
                 }

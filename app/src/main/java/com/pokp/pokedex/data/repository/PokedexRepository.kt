@@ -23,6 +23,8 @@ import com.pokp.pokedex.domain.PokemonSummary
 import com.pokp.pokedex.domain.PokemonType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 class PokedexRepository(

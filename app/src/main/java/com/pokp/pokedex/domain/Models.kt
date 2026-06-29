@@ -12,11 +12,11 @@ data class PokemonSummary(
 
 /** How a move is learned by a Pokémon. */
 enum class LearnMethod(val displayName: String) {
-    LEVEL_UP("Level up"),
-    MACHINE("TM/HM"),
-    EGG("Egg"),
+    LEVEL_UP("Subir de nível"),
+    MACHINE("MT/MO"),
+    EGG("Ovo"),
     TUTOR("Tutor"),
-    OTHER("Other");
+    OTHER("Outro");
 
     companion object {
         fun fromApiName(name: String): LearnMethod = when (name) {
@@ -31,8 +31,8 @@ enum class LearnMethod(val displayName: String) {
 
 /** Damage category of a move. */
 enum class DamageClass(val displayName: String) {
-    PHYSICAL("Physical"),
-    SPECIAL("Special"),
+    PHYSICAL("Físico"),
+    SPECIAL("Especial"),
     STATUS("Status"),
     UNKNOWN("—");
 

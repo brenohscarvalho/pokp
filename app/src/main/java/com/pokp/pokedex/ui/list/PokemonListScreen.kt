@@ -69,7 +69,7 @@ fun PokemonListScreen(
                 title = { Text("Pokédex", fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(onClick = onSettingsClick) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(Icons.Default.Settings, contentDescription = "Configurações")
                     }
                 },
             )
@@ -80,7 +80,7 @@ fun PokemonListScreen(
                 value = state.query,
                 onValueChange = viewModel::onQueryChange,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                placeholder = { Text("Search by name or number") },
+                placeholder = { Text("Buscar por nome ou número") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true,
             )
@@ -100,7 +100,7 @@ fun PokemonListScreen(
 @Composable
 private fun PokemonGrid(items: List<PokemonSummary>, onPokemonClick: (Int) -> Unit) {
     if (items.isEmpty()) {
-        CenteredBox { Text("No Pokémon match your filters.") }
+        CenteredBox { Text("Nenhum Pokémon corresponde aos filtros.") }
         return
     }
     LazyVerticalGrid(
@@ -163,7 +163,7 @@ private fun TypeFilterRow(selected: PokemonType?, onSelect: (PokemonType?) -> Un
             FilterChip(
                 selected = selected == null,
                 onClick = { onSelect(null) },
-                label = { Text("All types") },
+                label = { Text("Todos os tipos") },
             )
         }
         items(PokemonType.entries) { type ->
@@ -189,14 +189,14 @@ private fun GenerationFilterRow(selected: Int?, onSelect: (Int?) -> Unit) {
             FilterChip(
                 selected = selected == null,
                 onClick = { onSelect(null) },
-                label = { Text("All gens") },
+                label = { Text("Todas as gerações") },
             )
         }
         items((1..9).toList()) { gen ->
             FilterChip(
                 selected = selected == gen,
                 onClick = { onSelect(if (selected == gen) null else gen) },
-                label = { Text("Gen $gen") },
+                label = { Text("Ger. $gen") },
             )
         }
     }
@@ -207,18 +207,18 @@ private fun EmptyState(onSettingsClick: () -> Unit) {
     CenteredBox {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                "No Pokédex data yet.",
+                "Ainda não há dados da Pokédex.",
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Download the dataset from Settings to get started.",
+                "Baixe os dados em Configurações para começar.",
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(16.dp))
-            Button(onClick = onSettingsClick) { Text("Open Settings") }
+            Button(onClick = onSettingsClick) { Text("Abrir configurações") }
         }
     }
 }

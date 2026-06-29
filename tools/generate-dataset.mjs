@@ -72,18 +72,18 @@ async function mapLimit(items, limit, fn) {
 
 function conditionText(details) {
   const d = (details && details[0]) || null;
-  if (!d) return 'Special';
+  if (!d) return 'Especial';
   const parts = [];
-  if (d.min_level != null) parts.push(`Lv. ${d.min_level}`);
-  else if (d.item) parts.push(`Use ${formatName(d.item.name)}`);
+  if (d.min_level != null) parts.push(`Nv. ${d.min_level}`);
+  else if (d.item) parts.push(`Usar ${formatName(d.item.name)}`);
   else if (d.trigger && d.trigger.name === 'trade') {
-    parts.push('Trade');
-    if (d.held_item) parts.push(`holding ${formatName(d.held_item.name)}`);
-  } else if (d.min_happiness != null) parts.push('High friendship');
-  else if (d.known_move) parts.push(`Know ${formatName(d.known_move.name)}`);
-  else if (d.location) parts.push(`At ${formatName(d.location.name)}`);
-  else if (d.held_item) parts.push(`Hold ${formatName(d.held_item.name)}`);
-  else parts.push(formatName((d.trigger && d.trigger.name) || 'special'));
+    parts.push('Troca');
+    if (d.held_item) parts.push(`segurando ${formatName(d.held_item.name)}`);
+  } else if (d.min_happiness != null) parts.push('Amizade alta');
+  else if (d.known_move) parts.push(`Conhecer ${formatName(d.known_move.name)}`);
+  else if (d.location) parts.push(`Em ${formatName(d.location.name)}`);
+  else if (d.held_item) parts.push(`Segurar ${formatName(d.held_item.name)}`);
+  else parts.push(formatName((d.trigger && d.trigger.name) || 'especial'));
   if (d.time_of_day) parts.push(`(${d.time_of_day})`);
   return parts.join(' ');
 }

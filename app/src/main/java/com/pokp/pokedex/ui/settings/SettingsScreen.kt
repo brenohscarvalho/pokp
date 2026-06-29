@@ -55,10 +55,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text("Configurações") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                     }
                 },
             )
@@ -71,15 +71,15 @@ fun SettingsScreen(
         ) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Pokédex data", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Dados da Pokédex", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        "Last updated: ${formatTimestamp(lastUpdated)}",
+                        "Última atualização: ${formatTimestamp(lastUpdated)}",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        "Tap update to download the latest data from PokeAPI. This may take a few " +
-                            "minutes and requires an internet connection. The app works offline once " +
-                            "data is downloaded.",
+                        "Toque em atualizar para baixar os dados mais recentes da PokeAPI. Isso pode " +
+                            "levar alguns minutos e requer conexão com a internet. O aplicativo " +
+                            "funciona offline depois que os dados são baixados.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -111,10 +111,10 @@ fun SettingsScreen(
                                 strokeWidth = 2.dp,
                                 color = MaterialTheme.colorScheme.onPrimary,
                             )
-                            Text("  Updating…")
+                            Text("  Atualizando…")
                         } else {
                             Icon(Icons.Default.Refresh, contentDescription = null)
-                            Text("  Update data")
+                            Text("  Atualizar dados")
                         }
                     }
                 }
@@ -122,10 +122,10 @@ fun SettingsScreen(
 
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("About", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Sobre", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        "Pokémon data provided by PokeAPI (pokeapi.co). Sprites from the PokeAPI " +
-                            "sprites repository. This app is an unofficial fan project.",
+                        "Dados dos Pokémon fornecidos pela PokeAPI (pokeapi.co). Sprites do " +
+                            "repositório de sprites da PokeAPI. Este é um projeto de fã, não oficial.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -135,7 +135,7 @@ fun SettingsScreen(
 }
 
 private fun formatTimestamp(millis: Long): String {
-    if (millis <= 0L) return "Never (using bundled data)"
+    if (millis <= 0L) return "Nunca (usando dados internos)"
     val format = SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault())
     return format.format(Date(millis))
 }

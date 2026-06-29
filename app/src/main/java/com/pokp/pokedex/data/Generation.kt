@@ -13,5 +13,5 @@ object Generation {
     }
 
     fun displayName(generation: Int): String =
-        if (generation in 1..9) "Generation $generation" else "Unknown"
+        if (generation in 1..9) "Geração $generation" else "Desconhecida"
 }

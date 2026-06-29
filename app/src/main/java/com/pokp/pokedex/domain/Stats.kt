@@ -2,12 +2,12 @@ package com.pokp.pokedex.domain
 
 /** The six battle stats. */
 enum class StatType(val displayName: String, val shortName: String) {
-    HP("HP", "HP"),
-    ATTACK("Attack", "Atk"),
-    DEFENSE("Defense", "Def"),
-    SP_ATTACK("Sp. Atk", "SpA"),
-    SP_DEFENSE("Sp. Def", "SpD"),
-    SPEED("Speed", "Spe");
+    HP("PV", "PV"),
+    ATTACK("Ataque", "Atq"),
+    DEFENSE("Defesa", "Def"),
+    SP_ATTACK("Atq. Esp.", "AtE"),
+    SP_DEFENSE("Def. Esp.", "DeE"),
+    SPEED("Velocidade", "Vel");
 
     companion object {
         /** Maps a PokeAPI stat name (e.g. "special-attack") to a [StatType]. */

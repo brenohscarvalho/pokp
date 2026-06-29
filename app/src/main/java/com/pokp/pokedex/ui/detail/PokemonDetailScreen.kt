@@ -45,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -66,7 +67,7 @@ import com.pokp.pokedex.ui.components.dexNumber
 import com.pokp.pokedex.ui.theme.colorForType
 import androidx.compose.ui.graphics.Color
 
-private val TABS = listOf("About", "Stats", "Evolutions", "Weaknesses", "Moves")
+private val TABS = listOf("Sobre", "Status", "Evoluções", "Fraquezas", "Golpes")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,7 +88,7 @@ fun PokemonDetailScreen(
                 title = { Text(detail?.name ?: "") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                     }
                 },
             )
@@ -102,7 +103,7 @@ fun PokemonDetailScreen(
             detail == null -> Box(
                 Modifier.padding(padding).fillMaxSize(),
                 contentAlignment = Alignment.Center,
-            ) { Text("Pokémon not found.") }
+            ) { Text("Pokémon não encontrado.") }
 
             else -> Column(Modifier.padding(padding).fillMaxSize()) {
                 Header(detail, accent)
@@ -170,11 +171,11 @@ private fun AboutTab(detail: PokemonDetail) {
             Text(detail.flavorText, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(16.dp))
         }
-        InfoRow("Height", "%.1f m".format(detail.heightMeters))
-        InfoRow("Weight", "%.1f kg".format(detail.weightKilograms))
-        InfoRow("Abilities", detail.abilities.joinToString(", ").ifBlank { "—" })
-        InfoRow("Generation", Generation.displayName(detail.generation))
-        InfoRow("Base stat total", detail.baseStats.total.toString())
+        InfoRow("Altura", "%.1f m".format(detail.heightMeters))
+        InfoRow("Peso", "%.1f kg".format(detail.weightKilograms))
+        InfoRow("Habilidades", detail.abilities.joinToString(", ").ifBlank { "—" })
+        InfoRow("Geração", Generation.displayName(detail.generation))
+        InfoRow("Total de status base", detail.baseStats.total.toString())
     }
 }
 
@@ -194,7 +195,7 @@ private fun StatsTab(state: DetailUiState, viewModel: PokemonDetailViewModel) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
     ) {
-        Text("Base stats", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Status base", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         StatType.entries.forEach { stat ->
             BaseStatBar(stat.shortName, detail.baseStats[stat])
@@ -202,7 +203,7 @@ private fun StatsTab(state: DetailUiState, viewModel: PokemonDetailViewModel) {
         InfoRow("Total", detail.baseStats.total.toString())
 
         Spacer(Modifier.height(24.dp))
-        Text("Stat calculator", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Calculadora de status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         CalculatorControls(state, viewModel)
     }
@@ -226,7 +227,7 @@ private fun CalculatorControls(state: DetailUiState, viewModel: PokemonDetailVie
     val calc = state.calculator
 
     // Level
-    Text("Level: ${calc.level}", fontWeight = FontWeight.SemiBold)
+    Text("Nível: ${calc.level}", fontWeight = FontWeight.SemiBold)
     Slider(
         value = calc.level.toFloat(),
         onValueChange = { viewModel.setLevel(it.toInt().coerceIn(1, 100)) },
@@ -240,11 +241,11 @@ private fun CalculatorControls(state: DetailUiState, viewModel: PokemonDetailVie
             value = natureLabel(calc.nature),
             onValueChange = {},
             readOnly = true,
-            label = { Text("Nature") },
+            label = { Text("Natureza") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
-        androidx.compose.material3.ExposedDropdownMenu(
+        ExposedDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
@@ -307,7 +308,7 @@ private fun CalculatorStatRow(
 private fun natureLabel(nature: Nature): String {
     val inc = nature.increased
     val dec = nature.decreased
-    return if (inc == null || dec == null) "${nature.displayName} (neutral)"
+    return if (inc == null || dec == null) "${nature.displayName} (neutra)"
     else "${nature.displayName} (+${inc.shortName} / -${dec.shortName})"
 }
 
@@ -321,13 +322,13 @@ private fun EvolutionsTab(
 ) {
     if (nodes.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-            Text("No evolution data.", textAlign = TextAlign.Center)
+            Text("Sem dados de evolução.", textAlign = TextAlign.Center)
         }
         return
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         if (nodes.size == 1) {
-            Text("This Pokémon does not evolve.", style = MaterialTheme.typography.bodyMedium)
+            Text("Este Pokémon não evolui.", style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(12.dp))
         }
         nodes.forEach { node ->
@@ -370,11 +371,11 @@ private fun EvolutionRow(node: EvolutionNode, highlighted: Boolean, onClick: () 
 @Composable
 private fun WeaknessesTab(defense: Map<PokemonType, Double>) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        MultiplierGroup("Weak to (×4)", defense.filterValues { it == 4.0 }.keys)
-        MultiplierGroup("Weak to (×2)", defense.filterValues { it == 2.0 }.keys)
-        MultiplierGroup("Resists (×½)", defense.filterValues { it == 0.5 }.keys)
-        MultiplierGroup("Resists (×¼)", defense.filterValues { it == 0.25 }.keys)
-        MultiplierGroup("Immune (×0)", defense.filterValues { it == 0.0 }.keys)
+        MultiplierGroup("Fraco contra (×4)", defense.filterValues { it == 4.0 }.keys)
+        MultiplierGroup("Fraco contra (×2)", defense.filterValues { it == 2.0 }.keys)
+        MultiplierGroup("Resiste (×½)", defense.filterValues { it == 0.5 }.keys)
+        MultiplierGroup("Resiste (×¼)", defense.filterValues { it == 0.25 }.keys)
+        MultiplierGroup("Imune (×0)", defense.filterValues { it == 0.0 }.keys)
     }
 }
 
@@ -400,7 +401,7 @@ private fun MultiplierGroup(title: String, types: Set<PokemonType>) {
 private fun MovesTab(moves: List<LearnedMove>) {
     if (moves.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-            Text("No move data.")
+            Text("Sem dados de golpes.")
         }
         return
     }
@@ -420,13 +421,13 @@ private fun MoveRow(move: LearnedMove) {
             Spacer(Modifier.height(4.dp))
             val meta = buildList {
                 add(move.info.damageClass.displayName)
-                add("Power: ${move.info.power ?: "—"}")
-                add("Acc: ${move.info.accuracy?.let { "$it%" } ?: "—"}")
+                add("Poder: ${move.info.power ?: "—"}")
+                add("Prec: ${move.info.accuracy?.let { "$it%" } ?: "—"}")
                 add("PP: ${move.info.pp ?: "—"}")
             }.joinToString("   ")
             Text(meta, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             val learn = when (move.method) {
-                LearnMethod.LEVEL_UP -> "Learns at Lv. ${move.levelLearnedAt}"
+                LearnMethod.LEVEL_UP -> "Aprende no Nv. ${move.levelLearnedAt}"
                 else -> move.method.displayName
             }
             Text(learn, fontSize = 12.sp)

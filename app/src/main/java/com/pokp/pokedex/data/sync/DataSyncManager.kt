@@ -80,7 +80,7 @@ class DataSyncManager(
                         val chain = runCatching { api.getEvolutionChain(url) }.getOrNull()
                         synchronized(this@DataSyncManager) {
                             chainsDone++
-                            onProgress(SyncProgress("Evolutions", chainsDone, chainUrls.size))
+                            onProgress(SyncProgress("Evoluções", chainsDone, chainUrls.size))
                         }
                         chain?.let { SeedEvolutionChain(it.id, flattenChain(it.chain)) }
                     }
@@ -98,7 +98,7 @@ class DataSyncManager(
                         val dto = runCatching { api.getMoveByName(name) }.getOrNull()
                         synchronized(this@DataSyncManager) {
                             movesDone++
-                            onProgress(SyncProgress("Moves", movesDone, moveNames.size))
+                            onProgress(SyncProgress("Golpes", movesDone, moveNames.size))
                         }
                         dto?.let {
                             SeedMove(
@@ -177,20 +177,20 @@ class DataSyncManager(
     }
 
     private fun conditionText(details: List<EvolutionDetailDto>): String {
-        val d = details.firstOrNull() ?: return "Special"
+        val d = details.firstOrNull() ?: return "Especial"
         val parts = mutableListOf<String>()
         when {
-            d.minLevel != null -> parts += "Lv. ${d.minLevel}"
-            d.item != null -> parts += "Use ${formatName(d.item.name)}"
+            d.minLevel != null -> parts += "Nv. ${d.minLevel}"
+            d.item != null -> parts += "Usar ${formatName(d.item.name)}"
             d.trigger.name == "trade" -> {
-                parts += "Trade"
-                d.heldItem?.let { parts += "holding ${formatName(it.name)}" }
+                parts += "Troca"
+                d.heldItem?.let { parts += "segurando ${formatName(it.name)}" }
             }
-            d.minHappiness != null -> parts += "High friendship"
-            d.knownMove != null -> parts += "Know ${formatName(d.knownMove.name)}"
-            d.location != null -> parts += "At ${formatName(d.location.name)}"
-            d.heldItem != null -> parts += "Hold ${formatName(d.heldItem.name)}"
-            else -> parts += formatName(d.trigger.name.ifBlank { "special" })
+            d.minHappiness != null -> parts += "Amizade alta"
+            d.knownMove != null -> parts += "Conhecer ${formatName(d.knownMove.name)}"
+            d.location != null -> parts += "Em ${formatName(d.location.name)}"
+            d.heldItem != null -> parts += "Segurar ${formatName(d.heldItem.name)}"
+            else -> parts += formatName(d.trigger.name.ifBlank { "especial" })
         }
         if (d.timeOfDay.isNotBlank()) parts += "(${d.timeOfDay})"
         return parts.joinToString(" ")
