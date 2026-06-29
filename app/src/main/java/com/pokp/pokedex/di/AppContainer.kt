@@ -46,6 +46,7 @@ class AppContainer(context: Context) {
         pokemonDao = database.pokemonDao(),
         moveDao = database.moveDao(),
         evolutionDao = database.evolutionDao(),
+        teamDao = database.teamDao(),
         seedLoader = seedLoader,
         syncManager = syncManager,
         json = json,

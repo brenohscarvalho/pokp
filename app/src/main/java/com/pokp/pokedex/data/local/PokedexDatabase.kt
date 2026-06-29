@@ -6,14 +6,20 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [PokemonEntity::class, MoveEntity::class, EvolutionChainEntity::class],
-    version = 1,
+    entities = [
+        PokemonEntity::class,
+        MoveEntity::class,
+        EvolutionChainEntity::class,
+        TeamEntity::class,
+    ],
+    version = 2,
     exportSchema = false,
 )
 abstract class PokedexDatabase : RoomDatabase() {
     abstract fun pokemonDao(): PokemonDao
     abstract fun moveDao(): MoveDao
     abstract fun evolutionDao(): EvolutionDao
+    abstract fun teamDao(): TeamDao
 
     companion object {
         @Volatile

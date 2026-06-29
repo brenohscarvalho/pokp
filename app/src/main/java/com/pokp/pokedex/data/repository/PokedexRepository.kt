@@ -6,6 +6,8 @@ import com.pokp.pokedex.data.local.MoveDao
 import com.pokp.pokedex.data.local.MoveEntity
 import com.pokp.pokedex.data.local.PokemonDao
 import com.pokp.pokedex.data.local.PokemonEntity
+import com.pokp.pokedex.data.local.TeamDao
+import com.pokp.pokedex.data.local.TeamEntity
 import com.pokp.pokedex.data.seed.SeedBundle
 import com.pokp.pokedex.data.seed.SeedEvoNode
 import com.pokp.pokedex.data.seed.SeedLoader
@@ -21,6 +23,8 @@ import com.pokp.pokedex.domain.MoveInfo
 import com.pokp.pokedex.domain.PokemonDetail
 import com.pokp.pokedex.domain.PokemonSummary
 import com.pokp.pokedex.domain.PokemonType
+import com.pokp.pokedex.domain.team.Team
+import com.pokp.pokedex.domain.team.TeamMember
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
@@ -31,6 +35,7 @@ class PokedexRepository(
     private val pokemonDao: PokemonDao,
     private val moveDao: MoveDao,
     private val evolutionDao: EvolutionDao,
+    private val teamDao: TeamDao,
     private val seedLoader: SeedLoader,
     private val syncManager: DataSyncManager,
     private val json: Json,
@@ -48,6 +53,43 @@ class PokedexRepository(
         }
 
     suspend fun isEmpty(): Boolean = pokemonDao.count() == 0
+
+    /** One-shot snapshot of all summaries (used by the team analyzer for suggestions). */
+    suspend fun getAllSummaries(): List<PokemonSummary> =
+        pokemonDao.getAllSummaries().map { row ->
+            PokemonSummary(
+                id = row.id,
+                name = row.name,
+                types = parseTypes(row.typesCsv),
+                generation = row.generation,
+            )
+        }
+
+    // ---------------- Teams ----------------
+
+    fun observeTeams(): Flow<List<Team>> =
+        teamDao.observeAll().map { rows -> rows.map { it.toTeam() } }
+
+    suspend fun getTeam(id: Long): Team? = teamDao.getById(id)?.toTeam()
+
+    suspend fun saveTeam(team: Team): Long {
+        val entity = TeamEntity(
+            id = team.id,
+            name = team.name.ifBlank { "Meu time" },
+            membersJson = json.encodeToString(team.members),
+            updatedAt = System.currentTimeMillis(),
+        )
+        return teamDao.upsert(entity)
+    }
+
+    suspend fun deleteTeam(id: Long) = teamDao.deleteById(id)
+
+    private fun TeamEntity.toTeam(): Team {
+        val members = runCatching {
+            json.decodeFromString<List<TeamMember>>(membersJson)
+        }.getOrDefault(emptyList())
+        return Team(id = id, name = name, members = members)
+    }
 
     suspend fun getDetail(id: Int): PokemonDetail? {
         val e = pokemonDao.getById(id) ?: return null

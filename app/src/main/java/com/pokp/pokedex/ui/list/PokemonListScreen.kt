@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -59,6 +60,7 @@ import androidx.compose.ui.graphics.Color
 fun PokemonListScreen(
     onPokemonClick: (Int) -> Unit,
     onSettingsClick: () -> Unit,
+    onTeamsClick: () -> Unit,
     viewModel: PokemonListViewModel = viewModel(factory = PokemonListViewModel.Factory),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -68,6 +70,9 @@ fun PokemonListScreen(
             TopAppBar(
                 title = { Text("Pokédex", fontWeight = FontWeight.Bold) },
                 actions = {
+                    IconButton(onClick = onTeamsClick) {
+                        Icon(Icons.Default.Groups, contentDescription = "Times")
+                    }
                     IconButton(onClick = onSettingsClick) {
                         Icon(Icons.Default.Settings, contentDescription = "Configurações")
                     }

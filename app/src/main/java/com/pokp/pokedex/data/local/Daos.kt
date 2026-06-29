@@ -12,6 +12,9 @@ interface PokemonDao {
     @Query("SELECT id, name, typesCsv, generation FROM pokemon ORDER BY id ASC")
     fun observeSummaries(): Flow<List<PokemonSummaryEntity>>
 
+    @Query("SELECT id, name, typesCsv, generation FROM pokemon ORDER BY id ASC")
+    suspend fun getAllSummaries(): List<PokemonSummaryEntity>
+
     @Query("SELECT * FROM pokemon WHERE id = :id")
     suspend fun getById(id: Int): PokemonEntity?
 

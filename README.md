@@ -14,6 +14,14 @@ A native Android Pokédex app built with Kotlin and Jetpack Compose.
   - **Weaknesses** — defensive type matchups (×4 / ×2 / ×½ / ×¼ / immune) computed from a
     built-in type chart.
   - **Moves** — learnable moves with type, category, power, accuracy and PP.
+- **Team builder** — create and save teams of up to 6 Pokémon (species, item, ability,
+  nature, level, Tera type, moves). Includes:
+  - **Import/export** in Pokémon Showdown text format.
+  - **Team weaknesses** — how many members are weak/resist each attacking type.
+  - **Offensive coverage** — which types the team's damaging moves hit super-effectively,
+    and the gaps.
+  - **Suggestions** — shared weaknesses (with Pokémon that would patch them) and moves to
+    add for better coverage.
 - **Offline first** — data is stored locally (Room). The app ships with a bundled dataset
   and works without internet. **Settings → Update data** re-downloads the latest data from
   [PokeAPI](https://pokeapi.co).
