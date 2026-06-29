@@ -1,0 +1,19 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+local.properties
+.cxx/
+
+# Generated dataset (produced by tools/generate-dataset.mjs in CI)
+app/src/main/assets/pokedex.json
+
+# OS
+.DS_Store
+
+# Node
+node_modules/
