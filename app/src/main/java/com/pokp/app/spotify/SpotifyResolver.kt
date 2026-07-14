@@ -3,7 +3,10 @@ package com.pokp.app.spotify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -16,13 +19,17 @@ data class SpotifyTrack(
     val artist: String,
     val durationSec: Int,
 ) {
-    /** Query used for the YouTube Music / YouTube search. */
-    fun searchQuery(): String = "$artist - $title"
+    /** Query used for the YouTube search. */
+    fun searchQuery(): String = if (artist.isBlank()) title else "$artist - $title"
 }
 
 /**
- * Turns a Spotify share URL (track / album / playlist) into the list of tracks it contains,
- * by reading public catalog metadata from the Spotify Web API.
+ * Turns a Spotify share URL (track / album / playlist) into the list of tracks it contains.
+ *
+ * Primary path is the official Web API (Client Credentials). Spotify blocks its own editorial
+ * / algorithmic playlists for that flow (HTTP 403), so we fall back to the public embed page
+ * (`open.spotify.com/embed/...`), which requires no credentials — the same trick spotDL /
+ * SpotiFlyer use.
  */
 class SpotifyResolver(
     private val client: OkHttpClient,
@@ -34,12 +41,10 @@ class SpotifyResolver(
 
     suspend fun resolve(rawUrl: String): List<SpotifyTrack> = withContext(Dispatchers.IO) {
         val (type, id) = parse(rawUrl) ?: error("Link do Spotify não reconhecido")
-        when (type) {
-            "track" -> listOf(fetchTrack(id))
-            "album" -> fetchAlbumTracks(id)
-            "playlist" -> fetchPlaylistTracks(id)
-            else -> error("Tipo de link do Spotify não suportado: $type")
-        }
+        // Try the official API first; on any failure (e.g. 403 for editorial playlists, no
+        // credentials, rate limit) fall back to the public embed page.
+        val viaApi = runCatching { resolveViaApi(type, id) }.getOrNull()
+        if (!viaApi.isNullOrEmpty()) viaApi else resolveViaEmbed(type, id)
     }
 
     /** Parses both `https://open.spotify.com/<type>/<id>?si=...` and `spotify:<type>:<id>`. */
@@ -51,6 +56,18 @@ class SpotifyResolver(
         Regex("open\\.spotify\\.com/(?:intl-[a-z]+/)?(track|album|playlist)/([A-Za-z0-9]+)")
             .find(url)?.let { return it.groupValues[1] to it.groupValues[2] }
         return null
+    }
+
+    // ---- Official Web API (Client Credentials) ----------------------------------------------
+
+    private suspend fun resolveViaApi(type: String, id: String): List<SpotifyTrack> {
+        if (!auth.isConfigured) return emptyList()
+        return when (type) {
+            "track" -> listOf(fetchTrack(id))
+            "album" -> fetchAlbumTracks(id)
+            "playlist" -> fetchPlaylistTracks(id)
+            else -> emptyList()
+        }
     }
 
     private suspend fun get(path: String): JsonObject {
@@ -68,11 +85,11 @@ class SpotifyResolver(
     }
 
     private fun trackFromJson(obj: JsonObject): SpotifyTrack {
-        val title = obj["name"]?.jsonPrimitive?.content.orEmpty()
+        val title = obj["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val artist = obj["artists"]?.jsonArray
-            ?.mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.content }
+            ?.mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
             ?.joinToString(", ").orEmpty()
-        val durationMs = obj["duration_ms"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+        val durationMs = obj["duration_ms"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
         return SpotifyTrack(title, artist, durationMs / 1000)
     }
 
@@ -104,8 +121,91 @@ class SpotifyResolver(
 
     /** Spotify paginated endpoints return an absolute `next` URL (or null) for the next page. */
     private fun nextPath(page: JsonObject): String? {
-        val next = page["next"]?.jsonPrimitive?.content
+        val next = page["next"]?.jsonPrimitive?.contentOrNull
         return if (next.isNullOrBlank() || next == "null") null
         else next.removePrefix("https://api.spotify.com/v1")
+    }
+
+    // ---- Public embed fallback (no credentials, works for editorial playlists) --------------
+
+    private fun resolveViaEmbed(type: String, id: String): List<SpotifyTrack> {
+        val request = Request.Builder()
+            .url("https://open.spotify.com/embed/$type/$id")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+            )
+            .header("Accept-Language", "en")
+            .build()
+
+        val html = client.newCall(request).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                error("Não foi possível ler o link do Spotify (${resp.code})")
+            }
+            body
+        }
+
+        val nextData = extractNextData(html)
+            ?: error("Não consegui interpretar a página do Spotify")
+        val root = json.parseToJsonElement(nextData)
+
+        // Playlists / albums expose a "trackList"; a single track embed may only have title/subtitle.
+        val tracks = findTrackList(root)
+            ?.mapNotNull { embedTrack(it) }
+            ?.filter { it.title.isNotBlank() }
+            .orEmpty()
+        if (tracks.isNotEmpty()) return tracks
+
+        findTitleSubtitle(root)?.let { return listOf(it) }
+        error("Nenhuma faixa encontrada nesse link do Spotify")
+    }
+
+    /** Extracts the JSON inside `<script id="__NEXT_DATA__" ...>...</script>`. */
+    private fun extractNextData(html: String): String? {
+        val idAt = html.indexOf("id=\"__NEXT_DATA__\"")
+        if (idAt < 0) return null
+        val open = html.indexOf('>', idAt)
+        if (open < 0) return null
+        val close = html.indexOf("</script>", open)
+        if (close < 0) return null
+        return html.substring(open + 1, close).trim()
+    }
+
+    /** Depth-first search for the first `trackList` array anywhere in the embed JSON. */
+    private fun findTrackList(el: JsonElement): JsonArray? {
+        when (el) {
+            is JsonObject -> {
+                (el["trackList"] as? JsonArray)?.let { return it }
+                for ((_, v) in el) findTrackList(v)?.let { return it }
+            }
+            is JsonArray -> for (v in el) findTrackList(v)?.let { return it }
+            else -> {}
+        }
+        return null
+    }
+
+    private fun embedTrack(el: JsonElement): SpotifyTrack? {
+        val obj = el as? JsonObject ?: return null
+        val title = obj["title"]?.jsonPrimitive?.contentOrNull ?: return null
+        val subtitle = obj["subtitle"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val durMs = obj["duration"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
+        return SpotifyTrack(title, subtitle, (durMs / 1000).toInt())
+    }
+
+    /** Fallback for single-item embeds: first object carrying both title and subtitle. */
+    private fun findTitleSubtitle(el: JsonElement): SpotifyTrack? {
+        when (el) {
+            is JsonObject -> {
+                if (el["title"] != null && el["subtitle"] != null) {
+                    embedTrack(el)?.let { return it }
+                }
+                for ((_, v) in el) findTitleSubtitle(v)?.let { return it }
+            }
+            is JsonArray -> for (v in el) findTitleSubtitle(v)?.let { return it }
+            else -> {}
+        }
+        return null
     }
 }
