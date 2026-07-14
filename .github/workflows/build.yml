@@ -35,15 +35,23 @@ jobs:
           } >> local.properties
 
       - name: Set up signing keystore (optional)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$GITHUB_WORKSPACE/keystore.jks"
-          {
-            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/keystore.jks"
-            echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}"
-            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}"
-            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}"
-          } >> local.properties
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/keystore.jks"
+            {
+              echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/keystore.jks"
+              echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "KEY_ALIAS=$KEY_ALIAS"
+              echo "KEY_PASSWORD=$KEY_PASSWORD"
+            } >> local.properties
+          else
+            echo "Nenhum keystore configurado; usando assinatura debug padrão."
+          fi
 
       - name: Build debug APK
         run: |
