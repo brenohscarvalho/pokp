@@ -49,4 +49,14 @@ object InitManager {
             _state.value = InitState.Failed(t.message ?: "Falha ao inicializar")
         }
     }
+
+    /** Manually updates the bundled yt-dlp. Returns true on success. */
+    suspend fun updateEngine(context: Context): Boolean = withContext(Dispatchers.IO) {
+        ensureInitialized(context)
+        runCatching {
+            YoutubeDL.getInstance()
+                .updateYoutubeDL(context.applicationContext, YoutubeDL.UpdateChannel.STABLE)
+            true
+        }.getOrDefault(false)
+    }
 }

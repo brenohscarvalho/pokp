@@ -18,6 +18,8 @@ data class SpotifyTrack(
     val title: String,
     val artist: String,
     val durationSec: Int,
+    val album: String? = null,
+    val coverUrl: String? = null,
 ) {
     /** Query used for the YouTube search. */
     fun searchQuery(): String = if (artist.isBlank()) title else "$artist - $title"
@@ -103,7 +105,10 @@ class SpotifyResolver(
             ?.mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
             ?.joinToString(", ").orEmpty()
         val durationMs = obj["duration_ms"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
-        return SpotifyTrack(title, artist, durationMs / 1000)
+        val album = obj["album"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull
+        val cover = obj["album"]?.jsonObject?.get("images")?.jsonArray
+            ?.firstOrNull()?.jsonObject?.get("url")?.jsonPrimitive?.contentOrNull
+        return SpotifyTrack(title, artist, durationMs / 1000, album, cover)
     }
 
     private suspend fun fetchTrack(id: String): SpotifyTrack = trackFromJson(get("/tracks/$id"))

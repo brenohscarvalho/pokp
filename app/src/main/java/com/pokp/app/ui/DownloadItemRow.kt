@@ -1,13 +1,19 @@
 package com.pokp.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -17,8 +23,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.pokp.app.domain.DownloadStatus
 import com.pokp.app.domain.DownloadTask
 
@@ -27,10 +35,29 @@ fun DownloadItemRow(
     task: DownloadTask,
     onCancel: () -> Unit,
     onRemove: () -> Unit,
+    onRetry: () -> Unit,
+    onOpen: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clickable(enabled = task.status == DownloadStatus.DONE) { onOpen() },
+    ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!task.thumbnail.isNullOrBlank()) {
+                    AsyncImage(
+                        model = task.thumbnail,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .padding(end = 0.dp),
+                    )
+                    Box(Modifier.size(width = 12.dp, height = 1.dp))
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = task.title.ifBlank { task.sourceUrl },
@@ -44,15 +71,14 @@ fun DownloadItemRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                val active = task.status == DownloadStatus.DOWNLOADING ||
-                    task.status == DownloadStatus.RESOLVING ||
-                    task.status == DownloadStatus.SAVING
-                if (active) {
-                    IconButton(onClick = onCancel) {
+                when {
+                    task.status.isActive -> IconButton(onClick = onCancel) {
                         Icon(Icons.Filled.Cancel, contentDescription = "Cancelar")
                     }
-                } else {
-                    IconButton(onClick = onRemove) {
+                    task.status == DownloadStatus.FAILED -> IconButton(onClick = onRetry) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Tentar novamente")
+                    }
+                    else -> IconButton(onClick = onRemove) {
                         Icon(Icons.Filled.Close, contentDescription = "Remover")
                     }
                 }
@@ -65,9 +91,7 @@ fun DownloadItemRow(
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     )
                 } else {
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    )
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
                 }
             }
             task.error?.let {
@@ -88,7 +112,7 @@ private fun statusLabel(task: DownloadTask): String = when (task.status) {
     DownloadStatus.DOWNLOADING ->
         if (task.progress > 0f) "Baixando ${task.progress.toInt()}%" else "Baixando…"
     DownloadStatus.SAVING -> "Salvando…"
-    DownloadStatus.DONE -> "Concluído ✓"
+    DownloadStatus.DONE -> "Concluído ✓ (toque para abrir)"
     DownloadStatus.FAILED -> "Falhou"
     DownloadStatus.CANCELLED -> "Cancelado"
 }

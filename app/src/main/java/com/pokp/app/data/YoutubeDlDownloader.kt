@@ -1,6 +1,7 @@
 package com.pokp.app.data
 
 import com.pokp.app.domain.DownloadFormat
+import com.pokp.app.domain.DownloadRequest
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
@@ -9,12 +10,15 @@ import java.io.File
 
 data class DownloadResult(val file: File, val isAudio: Boolean, val mimeType: String)
 
+/** Basic info used for the pre-download preview. */
+data class MediaInfo(val title: String, val thumbnail: String?, val durationSec: Int)
+
+/** One entry of a YouTube playlist (used when expanding a playlist into the queue). */
+data class PlaylistEntry(val url: String, val title: String)
+
 /**
  * Thin wrapper around yt-dlp (via youtubedl-android). Each download runs in its own
  * temporary directory so we can reliably pick up the resulting file afterwards.
- *
- * [source] may be a normal URL or a search expression such as `ytsearch1:Artist - Title`
- * (used by the Spotify bridge).
  */
 object YoutubeDlDownloader {
 
@@ -25,46 +29,77 @@ object YoutubeDlDownloader {
         }.getOrNull()
     }
 
+    suspend fun fetchInfo(source: String): MediaInfo? = withContext(Dispatchers.IO) {
+        runCatching {
+            val info = YoutubeDL.getInstance().getInfo(YoutubeDLRequest(source))
+            MediaInfo(
+                title = info.title ?: info.fulltitle ?: source,
+                thumbnail = info.thumbnail,
+                durationSec = info.duration,
+            )
+        }.getOrNull()
+    }
+
+    /** Lists the entries of a YouTube playlist without downloading (flat, fast). */
+    suspend fun listPlaylist(url: String): List<PlaylistEntry> = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = YoutubeDLRequest(url).apply {
+                addOption("--flat-playlist")
+                addOption("--print", "%(id)s\t%(title)s")
+            }
+            val response = YoutubeDL.getInstance().execute(request)
+            response.out.lineSequence()
+                .mapNotNull { line ->
+                    val parts = line.split('\t', limit = 2)
+                    val id = parts.getOrNull(0)?.trim().orEmpty()
+                    if (id.isBlank()) return@mapNotNull null
+                    PlaylistEntry(
+                        url = "https://www.youtube.com/watch?v=$id",
+                        title = parts.getOrNull(1)?.trim().orEmpty(),
+                    )
+                }
+                .toList()
+        }.getOrDefault(emptyList())
+    }
+
     /**
-     * Downloads [source] in the chosen [format] and returns the produced file.
+     * Downloads [request] and returns the produced file.
      * @param onProgress invoked with (progress 0..100, etaSeconds, rawLine).
      */
     suspend fun download(
-        source: String,
-        format: DownloadFormat,
-        processId: String,
+        request: DownloadRequest,
         baseCacheDir: File,
         onProgress: (Float, Long, String) -> Unit,
     ): DownloadResult = withContext(Dispatchers.IO) {
+        val processId = request.id.replace("-", "")
         val workDir = File(baseCacheDir, "dl_$processId").apply {
             deleteRecursively()
             mkdirs()
         }
         try {
-            val request = YoutubeDLRequest(source).apply {
+            val ytdl = YoutubeDLRequest(request.source).apply {
                 addOption("--no-playlist")
                 addOption("--no-mtime")
                 addOption("--restrict-filenames")
                 addOption("-o", "${workDir.absolutePath}/%(title)s.%(ext)s")
-                applyFormatOptions(format)
+                applyOptions(request)
             }
 
-            YoutubeDL.getInstance().execute(request, processId) { progress, eta, line ->
+            YoutubeDL.getInstance().execute(ytdl, processId) { progress, eta, line ->
                 onProgress(progress, eta, line)
             }
 
-            val produced = pickResultFile(workDir, format)
+            val produced = pickResultFile(workDir, request.format)
                 ?: error("Download concluído mas nenhum arquivo foi encontrado")
 
-            // Move out of the per-task work dir into a flat cache so the dir can be cleaned.
             val finalFile = File(baseCacheDir, produced.name)
             if (finalFile.exists()) finalFile.delete()
             produced.copyTo(finalFile, overwrite = true)
 
             DownloadResult(
                 file = finalFile,
-                isAudio = format.isAudio,
-                mimeType = if (format.isAudio) "audio/mpeg" else "video/mp4",
+                isAudio = request.format.isAudio,
+                mimeType = if (request.format.isAudio) "audio/mpeg" else "video/mp4",
             )
         } finally {
             workDir.deleteRecursively()
@@ -74,13 +109,18 @@ object YoutubeDlDownloader {
     fun cancel(processId: String): Boolean =
         runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }.getOrDefault(false)
 
-    private fun YoutubeDLRequest.applyFormatOptions(format: DownloadFormat) {
+    private fun YoutubeDLRequest.applyOptions(request: DownloadRequest) {
+        val format = request.format
         if (format.isAudio) {
             addOption("-x")
             addOption("--audio-format", "mp3")
-            addOption("--audio-quality", "0")
-            addOption("--embed-metadata")
-            addOption("--embed-thumbnail")
+            addOption("--audio-quality", request.bitrate.ytdlpValue)
+            // For plain YouTube audio, let yt-dlp embed tags/thumbnail; Spotify tracks are
+            // tagged afterwards with accurate metadata, so skip embedding here.
+            if (request.meta == null) {
+                addOption("--embed-metadata")
+                addOption("--embed-thumbnail")
+            }
         } else {
             val selector = when (val h = format.maxHeight) {
                 null -> "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
@@ -88,12 +128,36 @@ object YoutubeDlDownloader {
             }
             addOption("-f", selector)
             addOption("--merge-output-format", "mp4")
+            if (request.subtitles) {
+                addOption("--write-subs")
+                addOption("--write-auto-subs")
+                addOption("--sub-langs", "pt.*,en.*")
+                addOption("--convert-subs", "srt")
+                addOption("--embed-subs")
+            }
         }
+
+        val trim = trimSection(request.trimStart, request.trimEnd)
+        if (trim != null) {
+            addOption("--download-sections", trim)
+            addOption("--force-keyframes-at-cuts")
+        }
+    }
+
+    /** Builds a yt-dlp `--download-sections` value like `*00:10-01:30`; null if no trim set. */
+    private fun trimSection(start: String?, end: String?): String? {
+        val s = start?.trim().orEmpty()
+        val e = end?.trim().orEmpty()
+        if (s.isBlank() && e.isBlank()) return null
+        return "*${s.ifBlank { "0" }}-${e.ifBlank { "inf" }}"
     }
 
     private fun pickResultFile(dir: File, format: DownloadFormat): File? {
         val files = dir.listFiles()
-            ?.filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") }
+            ?.filter {
+                it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") &&
+                    !it.name.endsWith(".srt")
+            }
             ?: return null
         val wantedExt = if (format.isAudio) "mp3" else "mp4"
         return files.firstOrNull { it.extension.equals(wantedExt, ignoreCase = true) }

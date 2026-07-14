@@ -3,20 +3,25 @@ package com.pokp.app.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.pokp.app.BuildConfig
+import com.pokp.app.data.DownloadRepository
+import com.pokp.app.data.HistoryStore
 import com.pokp.app.data.InitManager
-import com.pokp.app.data.MediaStoreSaver
+import com.pokp.app.data.InitState
+import com.pokp.app.data.SettingsStore
+import com.pokp.app.data.UpdateChecker
 import com.pokp.app.data.YoutubeDlDownloader
+import com.pokp.app.domain.AudioBitrate
 import com.pokp.app.domain.DownloadFormat
-import com.pokp.app.domain.DownloadStatus
+import com.pokp.app.domain.DownloadRequest
 import com.pokp.app.domain.DownloadTask
 import com.pokp.app.domain.LinkKind
+import com.pokp.app.domain.ThemeMode
+import com.pokp.app.domain.TrackMeta
 import com.pokp.app.domain.UrlClassifier
 import com.pokp.app.spotify.SpotifyAuth
 import com.pokp.app.spotify.SpotifyResolver
 import com.pokp.app.spotify.SpotifyToYoutubeBridge
-import com.pokp.app.data.DownloadResult
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,15 +30,45 @@ import okhttp3.OkHttpClient
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
+/** Options captured from the UI when the user hits download. */
+data class EnqueueOptions(
+    val format: DownloadFormat,
+    val bitrate: AudioBitrate,
+    val subtitles: Boolean,
+    val trimStart: String?,
+    val trimEnd: String?,
+    val wholePlaylist: Boolean,
+)
+
+/** Info shown in the pre-download preview dialog. */
+data class PreviewInfo(
+    val title: String,
+    val subtitle: String,
+    val thumbnail: String?,
+)
+
 class DownloadViewModel(app: Application) : AndroidViewModel(app) {
 
-    val initState: StateFlow<com.pokp.app.data.InitState> = InitManager.state
+    val initState: StateFlow<InitState> = InitManager.state
+    val tasks: StateFlow<List<DownloadTask>> = DownloadRepository.tasks
+    val history = HistoryStore.entries
 
-    private val _tasks = MutableStateFlow<List<DownloadTask>>(emptyList())
-    val tasks: StateFlow<List<DownloadTask>> = _tasks.asStateFlow()
+    val themeMode: StateFlow<ThemeMode> = SettingsStore.themeMode
+    val dynamicColor: StateFlow<Boolean> = SettingsStore.dynamicColor
+    val bitrate: StateFlow<AudioBitrate> = SettingsStore.bitrate
+    val subtitles: StateFlow<Boolean> = SettingsStore.subtitles
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
+
+    private val _preview = MutableStateFlow<PreviewInfo?>(null)
+    val preview: StateFlow<PreviewInfo?> = _preview.asStateFlow()
+
+    private val _previewLoading = MutableStateFlow(false)
+    val previewLoading: StateFlow<Boolean> = _previewLoading.asStateFlow()
+
+    private val _update = MutableStateFlow<UpdateChecker.UpdateInfo?>(null)
+    val update: StateFlow<UpdateChecker.UpdateInfo?> = _update.asStateFlow()
 
     private val httpClient by lazy {
         OkHttpClient.Builder()
@@ -46,23 +81,69 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
 
     val spotifyConfigured: Boolean get() = spotifyAuth.isConfigured
 
-    fun consumeMessage() { _message.value = null }
+    init {
+        checkForUpdate()
+    }
 
-    /** Entry point from the UI. [format] is ignored for Spotify (always MP3). */
-    fun enqueue(rawInput: String, format: DownloadFormat) {
+    fun consumeMessage() { _message.value = null }
+    fun dismissPreview() { _preview.value = null }
+    fun dismissUpdate() { _update.value = null }
+
+    fun setThemeMode(mode: ThemeMode) = SettingsStore.setThemeMode(mode)
+    fun setDynamicColor(enabled: Boolean) = SettingsStore.setDynamicColor(enabled)
+    fun setDefaultBitrate(b: AudioBitrate) = SettingsStore.setBitrate(b)
+    fun setDefaultSubtitles(enabled: Boolean) = SettingsStore.setSubtitles(enabled)
+
+    fun isYoutubePlaylist(rawInput: String): Boolean {
+        val url = (UrlClassifier.extractUrl(rawInput) ?: rawInput).lowercase()
+        return UrlClassifier.classify(url) == LinkKind.YOUTUBE &&
+            (url.contains("list=") || url.contains("/playlist"))
+    }
+
+    fun enqueue(rawInput: String, options: EnqueueOptions) {
         val url = UrlClassifier.extractUrl(rawInput) ?: rawInput.trim()
         if (url.isBlank()) {
             _message.value = "Cole um link válido."
             return
         }
         when (UrlClassifier.classify(url)) {
-            LinkKind.YOUTUBE -> startSingle(url, LinkKind.YOUTUBE, format, url)
-            LinkKind.SPOTIFY -> startSpotify(url)
+            LinkKind.YOUTUBE -> enqueueYoutube(url, options)
+            LinkKind.SPOTIFY -> enqueueSpotify(url, options)
             LinkKind.UNKNOWN -> _message.value = "Link não reconhecido (use YouTube ou Spotify)."
         }
     }
 
-    private fun startSpotify(url: String) {
+    private fun enqueueYoutube(url: String, options: EnqueueOptions) {
+        viewModelScope.launch {
+            InitManager.ensureInitialized(getApplication())
+            if (options.wholePlaylist && isYoutubePlaylist(url)) {
+                val entries = YoutubeDlDownloader.listPlaylist(url)
+                if (entries.isEmpty()) {
+                    _message.value = "Não consegui listar a playlist do YouTube."
+                    return@launch
+                }
+                val folder = YoutubeDlDownloader.fetchTitle(url) ?: "Playlist"
+                DownloadRepository.enqueue(
+                    entries.map { entry ->
+                        newRequest(
+                            source = entry.url,
+                            displayUrl = entry.url,
+                            kind = LinkKind.YOUTUBE,
+                            options = options,
+                            presetTitle = entry.title,
+                            subDir = folder,
+                        )
+                    },
+                )
+            } else {
+                DownloadRepository.enqueue(
+                    listOf(newRequest(url, url, LinkKind.YOUTUBE, options, presetTitle = "")),
+                )
+            }
+        }
+    }
+
+    private fun enqueueSpotify(url: String, options: EnqueueOptions) {
         if (!spotifyAuth.isConfigured) {
             _message.value = "Spotify não configurado: adicione SPOTIFY_CLIENT_ID/SECRET."
             return
@@ -71,159 +152,129 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
             InitManager.ensureInitialized(getApplication())
             try {
                 val resolution = spotifyResolver.resolve(url)
-                val tracks = resolution.tracks
-                if (tracks.isEmpty()) {
+                if (resolution.tracks.isEmpty()) {
                     _message.value = "Nenhuma faixa encontrada nesse link do Spotify."
                     return@launch
                 }
-                // Playlist/album tracks go into a subfolder named after the collection.
                 val subDir = resolution.collectionName
-                // Sequential to be gentle with Spotify/YouTube rate limits.
-                tracks.forEach { track ->
-                    val source = SpotifyToYoutubeBridge.searchSource(track)
-                    runDownload(
-                        source = source,
-                        kind = LinkKind.SPOTIFY,
-                        format = DownloadFormat.AUDIO_MP3,
-                        displayTitle = track.searchQuery(),
-                        displaySourceUrl = url,
-                        subDir = subDir,
-                    )
-                }
+                val audioOptions = options.copy(format = DownloadFormat.AUDIO_MP3)
+                DownloadRepository.enqueue(
+                    resolution.tracks.map { track ->
+                        newRequest(
+                            source = SpotifyToYoutubeBridge.searchSource(track),
+                            displayUrl = url,
+                            kind = LinkKind.SPOTIFY,
+                            options = audioOptions,
+                            presetTitle = track.searchQuery(),
+                            subDir = subDir,
+                            meta = TrackMeta(
+                                title = track.title,
+                                artist = track.artist,
+                                album = track.album ?: subDir,
+                                coverUrl = track.coverUrl,
+                            ),
+                        )
+                    },
+                )
             } catch (t: Throwable) {
                 _message.value = t.message ?: "Falha ao resolver o link do Spotify."
             }
         }
     }
 
-    private fun startSingle(
+    private fun newRequest(
         source: String,
+        displayUrl: String,
         kind: LinkKind,
-        format: DownloadFormat,
-        displaySourceUrl: String,
-    ) {
-        viewModelScope.launch {
-            InitManager.ensureInitialized(getApplication())
-            runDownload(source, kind, format, displayTitle = "", displaySourceUrl = displaySourceUrl)
-        }
-    }
-
-    private suspend fun runDownload(
-        source: String,
-        kind: LinkKind,
-        format: DownloadFormat,
-        displayTitle: String,
-        displaySourceUrl: String,
+        options: EnqueueOptions,
+        presetTitle: String,
         subDir: String? = null,
-    ) {
-        val id = UUID.randomUUID().toString()
-        val processId = id.replace("-", "")
-        addTask(
-            DownloadTask(
-                id = id,
-                sourceUrl = displaySourceUrl,
-                kind = kind,
-                format = format,
-                title = displayTitle,
-                status = DownloadStatus.RESOLVING,
-            )
-        )
+        meta: TrackMeta? = null,
+    ) = DownloadRequest(
+        id = UUID.randomUUID().toString(),
+        source = source,
+        displayUrl = displayUrl,
+        kind = kind,
+        format = options.format,
+        bitrate = options.bitrate,
+        subtitles = options.subtitles,
+        trimStart = options.trimStart,
+        trimEnd = options.trimEnd,
+        subDir = subDir,
+        presetTitle = presetTitle,
+        meta = meta,
+    )
 
-        // Best-effort title fetch for nicer display (skip if we already have one).
-        if (displayTitle.isBlank()) {
-            YoutubeDlDownloader.fetchTitle(source)?.let { t ->
-                updateTask(id) { it.copy(title = t) }
-            }
+    fun preview(rawInput: String) {
+        val url = UrlClassifier.extractUrl(rawInput) ?: rawInput.trim()
+        if (url.isBlank()) {
+            _message.value = "Cole um link válido."
+            return
         }
-
-        try {
-            updateTask(id) { it.copy(status = DownloadStatus.DOWNLOADING) }
-            val result = downloadWithRetry(id, source, format, processId)
-
-            updateTask(id) { it.copy(status = DownloadStatus.SAVING, progress = 100f) }
-            val uri = MediaStoreSaver.save(
-                context = getApplication(),
-                file = result.file,
-                mimeType = result.mimeType,
-                isAudio = result.isAudio,
-                subDir = subDir,
-            )
-            result.file.delete()
-            updateTask(id) {
-                it.copy(status = DownloadStatus.DONE, savedUri = uri.toString())
-            }
-        } catch (t: Throwable) {
-            val cancelled = t is InterruptedException
-            updateTask(id) {
-                it.copy(
-                    status = if (cancelled) DownloadStatus.CANCELLED else DownloadStatus.FAILED,
-                    error = if (cancelled) null else (t.message ?: "Falha no download"),
-                )
-            }
-        }
-    }
-
-    /**
-     * Runs the download, retrying a few times on transient network errors (e.g. DNS failures
-     * from a momentary connection drop) with a short backoff before giving up.
-     */
-    private suspend fun downloadWithRetry(
-        id: String,
-        source: String,
-        format: DownloadFormat,
-        processId: String,
-    ): DownloadResult {
-        val maxAttempts = 3
-        var attempt = 0
-        while (true) {
+        viewModelScope.launch {
+            _previewLoading.value = true
             try {
-                return YoutubeDlDownloader.download(
-                    source = source,
-                    format = format,
-                    processId = processId,
-                    baseCacheDir = getApplication<Application>().cacheDir,
-                ) { progress, eta, _ ->
-                    updateTask(id) { it.copy(progress = progress, etaSeconds = eta) }
+                InitManager.ensureInitialized(getApplication())
+                when (UrlClassifier.classify(url)) {
+                    LinkKind.SPOTIFY -> {
+                        if (!spotifyAuth.isConfigured) {
+                            _message.value = "Spotify não configurado."
+                            return@launch
+                        }
+                        val r = spotifyResolver.resolve(url)
+                        val first = r.tracks.firstOrNull()
+                        _preview.value = PreviewInfo(
+                            title = r.collectionName ?: first?.searchQuery() ?: url,
+                            subtitle = "${r.tracks.size} faixa(s) · Spotify",
+                            thumbnail = first?.coverUrl,
+                        )
+                    }
+                    LinkKind.YOUTUBE -> {
+                        val info = YoutubeDlDownloader.fetchInfo(url)
+                        if (info == null) {
+                            _message.value = "Não consegui obter a prévia."
+                        } else {
+                            _preview.value = PreviewInfo(
+                                title = info.title,
+                                subtitle = formatDuration(info.durationSec),
+                                thumbnail = info.thumbnail,
+                            )
+                        }
+                    }
+                    LinkKind.UNKNOWN -> _message.value = "Link não reconhecido."
                 }
             } catch (t: Throwable) {
-                attempt++
-                if (t is InterruptedException || attempt >= maxAttempts || !isTransientNetworkError(t)) {
-                    throw t
-                }
-                updateTask(id) {
-                    it.copy(progress = 0f, error = "Rede instável, tentando novamente ($attempt)…")
-                }
-                delay(3000L * attempt)
-                updateTask(id) { it.copy(error = null) }
+                _message.value = t.message ?: "Falha na prévia."
+            } finally {
+                _previewLoading.value = false
             }
         }
     }
 
-    private fun isTransientNetworkError(t: Throwable): Boolean {
-        val m = (t.message ?: "").lowercase()
-        return listOf(
-            "hostname", "errno 7", "temporary failure", "transporterror",
-            "unable to download", "timed out", "timeout", "connection reset",
-            "network is unreachable", "no address",
-        ).any { it in m }
-    }
-
-    fun cancel(task: DownloadTask) {
-        viewModelScope.launch(Dispatchers.IO) {
-            YoutubeDlDownloader.cancel(task.id.replace("-", ""))
+    fun updateEngine() {
+        viewModelScope.launch {
+            _message.value = "Atualizando motor de download…"
+            val ok = InitManager.updateEngine(getApplication())
+            _message.value = if (ok) "Motor atualizado ✓" else "Não foi possível atualizar agora."
         }
-        updateTask(task.id) { it.copy(status = DownloadStatus.CANCELLED) }
     }
 
-    fun remove(task: DownloadTask) {
-        _tasks.value = _tasks.value.filterNot { it.id == task.id }
+    private fun checkForUpdate() {
+        viewModelScope.launch {
+            _update.value = UpdateChecker.check(httpClient, BuildConfig.VERSION_NAME)
+        }
     }
 
-    private fun addTask(task: DownloadTask) {
-        _tasks.value = listOf(task) + _tasks.value
-    }
+    fun cancel(task: DownloadTask) = DownloadRepository.cancel(task.id)
+    fun remove(task: DownloadTask) = DownloadRepository.remove(task.id)
+    fun retry(task: DownloadTask) = DownloadRepository.retry(task.id)
+    fun clearFinished() = DownloadRepository.clearFinished()
+    fun clearHistory() = HistoryStore.clear()
 
-    private fun updateTask(id: String, transform: (DownloadTask) -> DownloadTask) {
-        _tasks.value = _tasks.value.map { if (it.id == id) transform(it) else it }
+    private fun formatDuration(sec: Int): String {
+        if (sec <= 0) return "YouTube"
+        val m = sec / 60
+        val s = sec % 60
+        return "%d:%02d · YouTube".format(m, s)
     }
 }

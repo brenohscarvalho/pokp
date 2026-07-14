@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 // Load Spotify credentials from local.properties (local builds) or env vars (CI).
@@ -23,8 +24,8 @@ android {
         applicationId = "com.pokp.app"
         minSdk = 29
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
 
         // Bundle Python/yt-dlp/ffmpeg native libs only for real-device ABIs to keep size sane.
         ndk {
@@ -35,9 +36,28 @@ android {
         buildConfigField("String", "SPOTIFY_CLIENT_SECRET", "\"${cred("SPOTIFY_CLIENT_SECRET")}\"")
     }
 
+    // Optional stable signing so app updates install without uninstalling. When the keystore
+    // secrets are absent, builds fall back to the default debug key.
+    val keystorePath = cred("KEYSTORE_PATH")
+    val hasKeystore = keystorePath.isNotBlank() && file(keystorePath).exists()
+    signingConfigs {
+        if (hasKeystore) {
+            create("stable") {
+                storeFile = file(keystorePath)
+                storePassword = cred("KEYSTORE_PASSWORD")
+                keyAlias = cred("KEY_ALIAS")
+                keyPassword = cred("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (hasKeystore) signingConfig = signingConfigs.getByName("stable")
+        }
         release {
             isMinifyEnabled = false
+            if (hasKeystore) signingConfig = signingConfigs.getByName("stable")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -96,6 +116,8 @@ dependencies {
     implementation(libs.youtubedl.aria2c)
 
     implementation(libs.okhttp)
+    implementation(libs.mp3agic)
+    implementation(libs.coil.compose)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 

@@ -7,9 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pokp.app.ui.DownloadScreen
 import com.pokp.app.ui.theme.PokpTheme
@@ -20,19 +18,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Ask for the notification permission on Android 13+ (used by future foreground service).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
                 .launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        val initialShared = extractSharedUrl(intent)
+        val sharedUrl = extractSharedUrl(intent)
 
         setContent {
-            PokpTheme {
-                var shared by remember { mutableStateOf(initialShared) }
-                val vm: DownloadViewModel = viewModel()
-                DownloadScreen(viewModel = vm, sharedUrl = shared)
+            val vm: DownloadViewModel = viewModel()
+            val themeMode by vm.themeMode.collectAsStateWithLifecycle()
+            val dynamicColor by vm.dynamicColor.collectAsStateWithLifecycle()
+            PokpTheme(themeMode = themeMode, dynamicColor = dynamicColor) {
+                DownloadScreen(viewModel = vm, sharedUrl = sharedUrl)
             }
         }
     }
