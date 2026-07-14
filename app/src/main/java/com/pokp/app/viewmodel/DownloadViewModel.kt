@@ -14,7 +14,9 @@ import com.pokp.app.domain.UrlClassifier
 import com.pokp.app.spotify.SpotifyAuth
 import com.pokp.app.spotify.SpotifyResolver
 import com.pokp.app.spotify.SpotifyToYoutubeBridge
+import com.pokp.app.data.DownloadResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -68,11 +70,14 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             InitManager.ensureInitialized(getApplication())
             try {
-                val tracks = spotifyResolver.resolve(url)
+                val resolution = spotifyResolver.resolve(url)
+                val tracks = resolution.tracks
                 if (tracks.isEmpty()) {
                     _message.value = "Nenhuma faixa encontrada nesse link do Spotify."
                     return@launch
                 }
+                // Playlist/album tracks go into a subfolder named after the collection.
+                val subDir = resolution.collectionName
                 // Sequential to be gentle with Spotify/YouTube rate limits.
                 tracks.forEach { track ->
                     val source = SpotifyToYoutubeBridge.searchSource(track)
@@ -82,6 +87,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
                         format = DownloadFormat.AUDIO_MP3,
                         displayTitle = track.searchQuery(),
                         displaySourceUrl = url,
+                        subDir = subDir,
                     )
                 }
             } catch (t: Throwable) {
@@ -108,6 +114,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
         format: DownloadFormat,
         displayTitle: String,
         displaySourceUrl: String,
+        subDir: String? = null,
     ) {
         val id = UUID.randomUUID().toString()
         val processId = id.replace("-", "")
@@ -131,14 +138,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
 
         try {
             updateTask(id) { it.copy(status = DownloadStatus.DOWNLOADING) }
-            val result = YoutubeDlDownloader.download(
-                source = source,
-                format = format,
-                processId = processId,
-                baseCacheDir = getApplication<Application>().cacheDir,
-            ) { progress, eta, _ ->
-                updateTask(id) { it.copy(progress = progress, etaSeconds = eta) }
-            }
+            val result = downloadWithRetry(id, source, format, processId)
 
             updateTask(id) { it.copy(status = DownloadStatus.SAVING, progress = 100f) }
             val uri = MediaStoreSaver.save(
@@ -146,6 +146,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
                 file = result.file,
                 mimeType = result.mimeType,
                 isAudio = result.isAudio,
+                subDir = subDir,
             )
             result.file.delete()
             updateTask(id) {
@@ -160,6 +161,51 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
         }
+    }
+
+    /**
+     * Runs the download, retrying a few times on transient network errors (e.g. DNS failures
+     * from a momentary connection drop) with a short backoff before giving up.
+     */
+    private suspend fun downloadWithRetry(
+        id: String,
+        source: String,
+        format: DownloadFormat,
+        processId: String,
+    ): DownloadResult {
+        val maxAttempts = 3
+        var attempt = 0
+        while (true) {
+            try {
+                return YoutubeDlDownloader.download(
+                    source = source,
+                    format = format,
+                    processId = processId,
+                    baseCacheDir = getApplication<Application>().cacheDir,
+                ) { progress, eta, _ ->
+                    updateTask(id) { it.copy(progress = progress, etaSeconds = eta) }
+                }
+            } catch (t: Throwable) {
+                attempt++
+                if (t is InterruptedException || attempt >= maxAttempts || !isTransientNetworkError(t)) {
+                    throw t
+                }
+                updateTask(id) {
+                    it.copy(progress = 0f, error = "Rede instável, tentando novamente ($attempt)…")
+                }
+                delay(3000L * attempt)
+                updateTask(id) { it.copy(error = null) }
+            }
+        }
+    }
+
+    private fun isTransientNetworkError(t: Throwable): Boolean {
+        val m = (t.message ?: "").lowercase()
+        return listOf(
+            "hostname", "errno 7", "temporary failure", "transporterror",
+            "unable to download", "timed out", "timeout", "connection reset",
+            "network is unreachable", "no address",
+        ).any { it in m }
     }
 
     fun cancel(task: DownloadTask) {

@@ -20,6 +20,7 @@ object MediaStoreSaver {
         file: File,
         mimeType: String,
         isAudio: Boolean,
+        subDir: String? = null,
     ): Uri = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         val collection = if (isAudio) {
@@ -28,11 +29,15 @@ object MediaStoreSaver {
             MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }
         val relativeDir = if (isAudio) Environment.DIRECTORY_MUSIC else Environment.DIRECTORY_DOWNLOADS
+        val relativePath = buildString {
+            append(relativeDir).append("/PokpDownloader")
+            sanitizeFolder(subDir)?.let { append('/').append(it) }
+        }
 
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
             put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "$relativeDir/PokpDownloader")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
 
@@ -48,5 +53,11 @@ object MediaStoreSaver {
         values.put(MediaStore.MediaColumns.IS_PENDING, 0)
         resolver.update(uri, values, null, null)
         uri
+    }
+
+    /** Makes a Spotify collection name safe to use as a folder segment; null if empty. */
+    private fun sanitizeFolder(name: String?): String? {
+        if (name.isNullOrBlank()) return null
+        return name.replace(Regex("[/\\\\:*?\"<>|\\n\\r\\t]"), "_").trim().take(80).ifBlank { null }
     }
 }

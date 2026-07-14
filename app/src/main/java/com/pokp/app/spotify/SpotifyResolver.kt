@@ -24,6 +24,15 @@ data class SpotifyTrack(
 }
 
 /**
+ * Result of resolving a Spotify link.
+ * @param collectionName playlist/album name (null for a single track) — used as a subfolder.
+ */
+data class SpotifyResolution(
+    val collectionName: String?,
+    val tracks: List<SpotifyTrack>,
+)
+
+/**
  * Turns a Spotify share URL (track / album / playlist) into the list of tracks it contains.
  *
  * Primary path is the official Web API (Client Credentials). Spotify blocks its own editorial
@@ -39,12 +48,12 @@ class SpotifyResolver(
 
     val isConfigured: Boolean get() = auth.isConfigured
 
-    suspend fun resolve(rawUrl: String): List<SpotifyTrack> = withContext(Dispatchers.IO) {
+    suspend fun resolve(rawUrl: String): SpotifyResolution = withContext(Dispatchers.IO) {
         val (type, id) = parse(rawUrl) ?: error("Link do Spotify não reconhecido")
         // Try the official API first; on any failure (e.g. 403 for editorial playlists, no
         // credentials, rate limit) fall back to the public embed page.
         val viaApi = runCatching { resolveViaApi(type, id) }.getOrNull()
-        if (!viaApi.isNullOrEmpty()) viaApi else resolveViaEmbed(type, id)
+        if (viaApi != null && viaApi.tracks.isNotEmpty()) viaApi else resolveViaEmbed(type, id)
     }
 
     /** Parses both `https://open.spotify.com/<type>/<id>?si=...` and `spotify:<type>:<id>`. */
@@ -60,15 +69,19 @@ class SpotifyResolver(
 
     // ---- Official Web API (Client Credentials) ----------------------------------------------
 
-    private suspend fun resolveViaApi(type: String, id: String): List<SpotifyTrack> {
-        if (!auth.isConfigured) return emptyList()
+    private suspend fun resolveViaApi(type: String, id: String): SpotifyResolution? {
+        if (!auth.isConfigured) return null
         return when (type) {
-            "track" -> listOf(fetchTrack(id))
-            "album" -> fetchAlbumTracks(id)
-            "playlist" -> fetchPlaylistTracks(id)
-            else -> emptyList()
+            "track" -> SpotifyResolution(null, listOf(fetchTrack(id)))
+            "album" -> SpotifyResolution(fetchName("/albums/$id"), fetchAlbumTracks(id))
+            "playlist" ->
+                SpotifyResolution(fetchName("/playlists/$id?fields=name"), fetchPlaylistTracks(id))
+            else -> null
         }
     }
+
+    private suspend fun fetchName(path: String): String? =
+        runCatching { get(path)["name"]?.jsonPrimitive?.contentOrNull }.getOrNull()
 
     private suspend fun get(path: String): JsonObject {
         val token = auth.token()
@@ -128,7 +141,7 @@ class SpotifyResolver(
 
     // ---- Public embed fallback (no credentials, works for editorial playlists) --------------
 
-    private fun resolveViaEmbed(type: String, id: String): List<SpotifyTrack> {
+    private fun resolveViaEmbed(type: String, id: String): SpotifyResolution {
         val request = Request.Builder()
             .url("https://open.spotify.com/embed/$type/$id")
             .header(
@@ -151,14 +164,22 @@ class SpotifyResolver(
             ?: error("Não consegui interpretar a página do Spotify")
         val root = json.parseToJsonElement(nextData)
 
-        // Playlists / albums expose a "trackList"; a single track embed may only have title/subtitle.
-        val tracks = findTrackList(root)
-            ?.mapNotNull { embedTrack(it) }
-            ?.filter { it.title.isNotBlank() }
-            .orEmpty()
-        if (tracks.isNotEmpty()) return tracks
+        val entity = findEntityWithTrackList(root)
+        if (entity != null) {
+            val name = entity["name"]?.jsonPrimitive?.contentOrNull
+                ?: entity["title"]?.jsonPrimitive?.contentOrNull
+            val tracks = (entity["trackList"] as? JsonArray)
+                ?.mapNotNull { embedTrack(it) }
+                ?.filter { it.title.isNotBlank() }
+                .orEmpty()
+            if (tracks.isNotEmpty()) {
+                // A single-track embed also has a 1-item trackList; treat that as no collection.
+                val collection = if (type == "track" || tracks.size <= 1) null else name
+                return SpotifyResolution(collection, tracks)
+            }
+        }
 
-        findTitleSubtitle(root)?.let { return listOf(it) }
+        findTitleSubtitle(root)?.let { return SpotifyResolution(null, listOf(it)) }
         error("Nenhuma faixa encontrada nesse link do Spotify")
     }
 
@@ -173,14 +194,14 @@ class SpotifyResolver(
         return html.substring(open + 1, close).trim()
     }
 
-    /** Depth-first search for the first `trackList` array anywhere in the embed JSON. */
-    private fun findTrackList(el: JsonElement): JsonArray? {
+    /** Depth-first search for the first object that directly holds a `trackList` array. */
+    private fun findEntityWithTrackList(el: JsonElement): JsonObject? {
         when (el) {
             is JsonObject -> {
-                (el["trackList"] as? JsonArray)?.let { return it }
-                for ((_, v) in el) findTrackList(v)?.let { return it }
+                if (el["trackList"] is JsonArray) return el
+                for ((_, v) in el) findEntityWithTrackList(v)?.let { return it }
             }
-            is JsonArray -> for (v in el) findTrackList(v)?.let { return it }
+            is JsonArray -> for (v in el) findEntityWithTrackList(v)?.let { return it }
             else -> {}
         }
         return null
