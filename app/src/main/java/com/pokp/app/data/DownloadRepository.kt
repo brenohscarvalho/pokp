@@ -130,35 +130,80 @@ object DownloadRepository {
             update(id) {
                 it.copy(
                     status = if (cancelled) DownloadStatus.CANCELLED else DownloadStatus.FAILED,
-                    error = if (cancelled) null else (t.message ?: "Falha no download"),
+                    error = if (cancelled) null else shortError(t),
                 )
             }
         }
     }
 
-    /** Retries transient network/DNS errors a few times with backoff before giving up. */
+    /** Once per app session: on the first YouTube-blocked error we refresh the engine. */
+    @Volatile
+    private var engineRefreshedThisSession = false
+
+    /**
+     * Retry ladder:
+     * 1. transient network/DNS errors → simple retry with backoff (up to 3x);
+     * 2. YouTube blocking (403/signature/challenge) → update yt-dlp once, retry;
+     * 3. still blocked → retry with the android player client (no JS challenges);
+     * 4. give up with a readable error.
+     */
     private suspend fun downloadWithRetry(id: String, req: DownloadRequest): DownloadResult {
-        val maxAttempts = 3
-        var attempt = 0
+        // Never start a download while a fresher engine is seconds away.
+        if (InitManager.updateState.value is EngineUpdateState.Updating) {
+            update(id) { it.copy(error = "Atualizando motor de download…") }
+            InitManager.awaitEngineUpdate()
+            update(id) { it.copy(error = null) }
+        }
+
+        val maxNetworkAttempts = 3
+        var networkAttempt = 0
+        var triedEngineUpdate = engineRefreshedThisSession
+        var compatMode = false
+
         while (true) {
             try {
-                return YoutubeDlDownloader.download(req, appContext.cacheDir) { progress, eta, _ ->
+                return YoutubeDlDownloader.download(
+                    req, appContext.cacheDir, compatMode,
+                ) { progress, eta, _ ->
                     update(id) { it.copy(progress = progress, etaSeconds = eta) }
                 }
             } catch (t: Throwable) {
-                attempt++
                 val cancelled = _tasks.value.firstOrNull { it.id == id }?.status ==
                     DownloadStatus.CANCELLED
-                if (t is InterruptedException || cancelled || attempt >= maxAttempts ||
-                    !isTransientNetworkError(t)
-                ) {
-                    throw t
+                if (t is InterruptedException || cancelled) throw t
+
+                when {
+                    isTransientNetworkError(t) && networkAttempt < maxNetworkAttempts - 1 -> {
+                        networkAttempt++
+                        update(id) {
+                            it.copy(
+                                progress = 0f,
+                                error = "Rede instável, tentando novamente ($networkAttempt)…",
+                            )
+                        }
+                        delay(3000L * networkAttempt)
+                        update(id) { it.copy(error = null) }
+                    }
+
+                    isYoutubeBlockedError(t) && !triedEngineUpdate -> {
+                        triedEngineUpdate = true
+                        engineRefreshedThisSession = true
+                        update(id) {
+                            it.copy(progress = 0f, error = "YouTube mudou — atualizando motor…")
+                        }
+                        InitManager.updateEngine(appContext)
+                        update(id) { it.copy(error = null) }
+                    }
+
+                    isYoutubeBlockedError(t) && !compatMode -> {
+                        compatMode = true
+                        update(id) {
+                            it.copy(progress = 0f, error = "Tentando modo alternativo…")
+                        }
+                    }
+
+                    else -> throw t
                 }
-                update(id) {
-                    it.copy(progress = 0f, error = "Rede instável, tentando novamente ($attempt)…")
-                }
-                delay(3000L * attempt)
-                update(id) { it.copy(error = null) }
             }
         }
     }
@@ -167,9 +212,28 @@ object DownloadRepository {
         val m = (t.message ?: "").lowercase()
         return listOf(
             "hostname", "errno 7", "temporary failure", "transporterror",
-            "unable to download", "timed out", "timeout", "connection reset",
+            "timed out", "timeout", "connection reset",
             "network is unreachable", "no address",
         ).any { it in m }
+    }
+
+    /** Signature/challenge failures caused by a stale yt-dlp vs. current YouTube player. */
+    private fun isYoutubeBlockedError(t: Throwable): Boolean {
+        val m = (t.message ?: "").lowercase()
+        return listOf(
+            "403", "forbidden", "signature", "challenge", "nsig", "n function",
+            "sign in to confirm", "not a bot", "requested format is not available",
+            "unable to download", "fragment",
+        ).any { it in m }
+    }
+
+    /** yt-dlp dumps walls of log text into exceptions; keep only the meaningful tail. */
+    private fun shortError(t: Throwable): String {
+        val raw = (t.message ?: "Falha no download").trim()
+        val line = raw.lines().lastOrNull { it.contains("ERROR", ignoreCase = true) }
+            ?: raw.lines().lastOrNull { it.isNotBlank() }
+            ?: raw
+        return line.trim().take(300)
     }
 
     private fun update(id: String, transform: (DownloadTask) -> DownloadTask) {

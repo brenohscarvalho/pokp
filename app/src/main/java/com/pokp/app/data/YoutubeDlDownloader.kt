@@ -69,6 +69,7 @@ object YoutubeDlDownloader {
     suspend fun download(
         request: DownloadRequest,
         baseCacheDir: File,
+        compatMode: Boolean = false,
         onProgress: (Float, Long, String) -> Unit,
     ): DownloadResult = withContext(Dispatchers.IO) {
         val processId = request.id.replace("-", "")
@@ -82,6 +83,11 @@ object YoutubeDlDownloader {
                 addOption("--no-mtime")
                 addOption("--restrict-filenames")
                 addOption("-o", "${workDir.absolutePath}/%(title)s.%(ext)s")
+                if (compatMode) {
+                    // The android player client skips YouTube's JS signature challenges —
+                    // fewer formats, but downloads keep working when the solver is stale.
+                    addOption("--extractor-args", "youtube:player_client=android,web_safari")
+                }
                 applyOptions(request)
             }
 

@@ -50,6 +50,7 @@ data class PreviewInfo(
 class DownloadViewModel(app: Application) : AndroidViewModel(app) {
 
     val initState: StateFlow<InitState> = InitManager.state
+    val engineVersion: StateFlow<String?> = InitManager.engineVersion
     val tasks: StateFlow<List<DownloadTask>> = DownloadRepository.tasks
     val history = HistoryStore.entries
 

@@ -40,6 +40,7 @@ fun SettingsScreen(viewModel: DownloadViewModel, onBack: () -> Unit) {
     val dynamic by viewModel.dynamicColor.collectAsStateWithLifecycle()
     val bitrate by viewModel.bitrate.collectAsStateWithLifecycle()
     val subtitles by viewModel.subtitles.collectAsStateWithLifecycle()
+    val engineVersion by viewModel.engineVersion.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -105,7 +106,8 @@ fun SettingsScreen(viewModel: DownloadViewModel, onBack: () -> Unit) {
 
             Text("Motor de download (yt-dlp)", style = MaterialTheme.typography.titleSmall)
             Text(
-                "Atualize se downloads do YouTube começarem a falhar.",
+                "Versão atual: ${engineVersion ?: "desconhecida"}\n" +
+                    "Atualize se downloads do YouTube começarem a falhar.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
